@@ -1,0 +1,1444 @@
+# coding: utf-8
+"""
+Waf commands module.
+
+See :paramref:`aoikwafutil.create_cmd_task` for how relative paths are handled.
+"""
+from __future__ import absolute_import
+
+# Standard imports
+import os.path
+import sys
+
+# External imports
+from aoikwafutil import add_options as _add_options
+from aoikwafutil import build_ctx as _build_ctx
+from aoikwafutil import chain_tasks as _chain_tasks
+from aoikwafutil import config_ctx as _config_ctx
+from aoikwafutil import create_cmd_task as _create_cmd_task
+from aoikwafutil import create_node as _create_node
+from aoikwafutil import get_full_python_version as _get_full_python_version
+from aoikwafutil import get_python_path as _get_python_path
+from aoikwafutil import git_clean as _git_clean
+from aoikwafutil import mark_input as _IN
+from aoikwafutil import pip_ins_req as _pip_ins_req
+from aoikwafutil import pip_setup as _pip_setup
+from aoikwafutil import print_ctx as _print_ctx
+from aoikwafutil import print_text as _print_text
+from aoikwafutil import print_title as _print_title
+from aoikwafutil import virtualenv_setup as _virtualenv_setup
+
+
+# Notice imports above are aliased to avoid being treated as Waf commands.
+
+
+# -----
+# Whether current Python is Python 2
+_PY2 = (sys.version_info[0] == 2)
+# =====
+
+
+# -----
+# `Waf` pre-defined variables.
+
+# Application name
+APPNAME = 'AoikLiveReload'
+
+# Version
+VERSION = '0.1.0'
+
+# Top directory relative path relative to this `wscript` file
+top = './../..'  # pylint: disable=C0103
+
+# Output directory relative path relative to this `wscript` file
+out = './../../build_waf'  # pylint: disable=C0103
+# =====
+
+
+# -----
+# Output directory relative path relative to top directory
+_OUT_DIR = os.path.relpath(out, top).replace('\\', '/')
+
+# Touch files directory relative path relative to top directory
+_TOUCH_DIR = os.path.join(_OUT_DIR, '.touch').replace('\\', '/')
+# =====
+
+
+# -----
+# Top package name.
+# Some tools only work with package name instead of directory path.
+_TOP_PACKAGE = 'aoiklivereload'
+
+# Top package directory path, relative to top directory
+_TOP_PACKAGE_DIR = './src/' + _TOP_PACKAGE
+
+# Extra code paths and directories that formatters and linters should take
+_EXTRA_CODE_PATHS_AND_DIRS = [
+    # `setup.py` file
+    './setup.py',
+
+    # `pytest`'s custom plugin module
+    './tools/pytest/pytest_custom_plugin.py',
+
+    # `Waf` commands module, i.e. this file
+    './tools/waf/wscript',
+]
+# =====
+
+
+# -----
+# Task `pip_setup`'s `get-pip.py` file path
+_PIP_SETUP_FILE = './tools/pip/get-pip.py'
+
+# Task `pip_setup`'s touch file path for dirty checking.
+# E.g. `{_TOUCH_DIR}/tools.pip.get-pip.py.py3.5.1.final.0.64bit`.
+_PIP_SETUP_TOUCH = _TOUCH_DIR + '/tools.pip.get-pip.py.py' + \
+    _get_full_python_version()
+# =====
+
+
+# -----
+# Task `virtualenv_setup`'s touch file path for dirty checking.
+# E.g. `{_TOUCH_DIR}/tools.virtualenv.requirements.txt.py3.5.1.final.0.64bit`.
+_VIRTUALENV_SETUP_TOUCH = _TOUCH_DIR + \
+    '/tools.virtualenv.requirements.txt.py' + _get_full_python_version()
+# =====
+
+
+# -----
+# Development's virtual environment's directory path, relative to top
+# directory. E.g. `./dev_venv.py3.5.1.final.0.64bit`.
+_DEV_VENV_PATH = './dev_venv.py' + _get_full_python_version()
+
+# Development's virtual environment's `python` program path, relative to top
+# directory. E.g. `./dev_venv.py3.5.1.final.0.64bit/bin/python`.
+_DEV_VENV_PYTHON = _get_python_path(_DEV_VENV_PATH)
+# =====
+
+
+# -----
+# Production's virtual environment's directory path, relative to top directory.
+# E.g. `./prod_venv.py3.5.1.final.0.64bit`.
+_PROD_VENV_PATH = './prod_venv.py' + _get_full_python_version()
+
+# Production's virtual environment's `python` program path, relative to top
+# directory. E.g. `./prod_venv.py3.5.1.final.0.64bit/bin/python`.
+_PROD_VENV_PYTHON = _get_python_path(_PROD_VENV_PATH)
+# =====
+
+
+# -----
+# Tools' virtual environment's directory path, relative to top directory.
+# E.g. `./tools_venv.py3.5.1.final.0.64bit`.
+_TOOLS_VENV_PATH = './tools_venv.py' + _get_full_python_version()
+
+# Tools' virtual environment's `python` program path, relative to top
+# directory. E.g. `./tools_venv.py3.5.1.final.0.64bit/bin/python`.
+_TOOLS_VENV_PYTHON = _get_python_path(_TOOLS_VENV_PATH)
+# =====
+
+
+def options(ctx):
+    """
+    Add command line options.
+
+    This is `Waf`'s pre-defined hook that will be called automatically.
+
+    :param ctx: OptionsContext object.
+
+    :return: None.
+    """
+    # Add `aoikwafutil`'s command line options
+    _add_options(ctx=ctx)
+
+
+def configure(ctx):
+    """
+    Configure build environment.
+
+    This is `Waf`'s pre-defined command.
+
+    :param ctx: ConfigurationContext object.
+
+    :return: None.
+    """
+    # Print context info
+    _print_ctx(ctx)
+
+
+def build(ctx):
+    """
+    Create task that builds wheel file.
+
+    This is `Waf`'s pre-defined command.
+
+    :param ctx: BuildContext object.
+
+    :return: Created task.
+    """
+    # Create task that builds wheel file
+    task = build_wheel(ctx=ctx)
+
+    # Return the created task
+    return task
+
+
+# Non-pre-defined command functions are given plain Context object.
+# Use decorator `_build_ctx` to get BuildContext object instead, because
+# BuildContext object provides more methods.
+@_build_ctx(pythonpath='src')
+def build_wheel(ctx):
+    """
+    Create task that builds wheel file.
+
+    :param ctx: BuildContext object.
+
+    :return: Created task.
+    """
+    # Create task that builds wheel file
+    task = _create_cmd_task(
+        # Context
+        ctx=ctx,
+
+        # Command parts
+        parts=[
+            # Current Python program path
+            sys.executable,
+
+            # Run `setup.py`
+            _IN('./setup.py'),
+
+            # Build wheel file
+            'bdist_wheel',
+
+            # Build wheel that is usable for both Python 2 and 3
+            '--universal',
+        ],
+
+        # Whether always run
+        always=True,
+    )
+
+    # Return the created task
+    return task
+
+
+@_build_ctx(pythonpath='src')
+def build_sdist(ctx):
+    """
+    Create task that builds source distribution file.
+
+    :param ctx: BuildContext object.
+
+    :return: Created task.
+    """
+    # Create task that builds source distribution file
+    task = _create_cmd_task(
+        # Context
+        ctx=ctx,
+
+        # Command parts
+        parts=[
+            # Current Python program path
+            sys.executable,
+
+            # Run `setup.py`
+            _IN('./setup.py'),
+
+            # Build source distribution file
+            'sdist',
+
+            # Pack in zip format
+            '--formats=zip',
+        ],
+
+        # Whether always run
+        always=True,
+    )
+
+    # Return the created task
+    return task
+
+
+@_build_ctx(pythonpath='src')
+def pip_setup(ctx, always=False):
+    """
+    Create task that sets up `pip`.
+
+    :param ctx: BuildContext object.
+
+    :param always: Whether always run.
+
+    :return: Created task.
+    """
+    # Create task that sets up `pip`
+    task = _pip_setup(
+        # Context
+        ctx=ctx,
+
+        # Current Python program path
+        python=sys.executable,
+
+        # `get-pip.py` file path
+        setup_file=_PIP_SETUP_FILE,
+
+        # Touch file path for dirty checking
+        touch=_PIP_SETUP_TOUCH,
+
+        # Whether import module for dirty checking
+        check_import=ctx.options.check_import,
+
+        # Whether always run
+        always=always or ctx.options.always,
+    )
+
+    # Return the created task
+    return task
+
+
+@_build_ctx(pythonpath='src')
+def virtualenv_setup(ctx, always=False):
+    """
+    Create task that sets up `virtualenv` package.
+
+    :param ctx: BuildContext object.
+
+    :param always: Whether always run.
+
+    :return: Created task.
+    """
+    # Create task that sets up `virtualenv` package
+    task = _virtualenv_setup(
+        # Context
+        ctx=ctx,
+
+        # Current Python program path
+        python=sys.executable,
+
+        # Touch file path for dirty checking
+        touch=_VIRTUALENV_SETUP_TOUCH,
+
+        # Whether import module for dirty checking
+        check_import=ctx.options.check_import,
+
+        # Task `pip_setup`'s `get-pip.py` file path
+        pip_setup_file=_PIP_SETUP_FILE,
+
+        # Task `pip_setup`'s touch file path for dirty checking
+        pip_setup_touch=_PIP_SETUP_TOUCH,
+
+        # Whether always run
+        always=always or ctx.options.always,
+    )
+
+    # Return the created task
+    return task
+
+
+def _venv_pip_ins_req(
+    ctx,
+    venv_path,
+    venv_add_version=False,
+    req_path=None,
+    check_import=False,
+    check_import_module=None,
+    always=False,
+):
+    """
+    Create task that sets up virtual environment and packages.
+
+    The virtual environment created is based on current Python version.
+
+    :param ctx: BuildContext object.
+
+    :param venv_path: Virtual environment directory relative path relative to
+        top directory.
+
+    :param venv_add_version: Whether add full Python version to virtual
+        environment path.
+
+        E.g.
+            - `.py2.7.11.final.0.32bit`
+            - `.py3.5.1.final.0.64bit`
+
+    :param req_path: Requirements file relative path relative to top directory.
+
+        If the value is not given, will compose the path.
+
+        If the file not exists, will create the file.
+
+    :param check_import: Whether import module for dirty checking.
+
+    :param check_import_module: Module name to import for dirty checking.
+
+    :param always: Whether always run.
+
+    :return: Created task.
+    """
+    # Print title
+    _print_title('Check venv path')
+
+    # Normalize the virtual environment path
+    venv_path = os.path.normpath(venv_path).replace('\\', '/')
+
+    # If need add full Python version to virtual environment path
+    if venv_add_version:
+        # Add full Python version to virtual environment path
+        full_venv_path = venv_path + '.py' + _get_full_python_version()
+
+    # If not need add full Python version to virtual environment path
+    else:
+        # Use given virtual environment path
+        full_venv_path = venv_path
+
+    # Print info
+    _print_text('Use venv: {0}'.format(full_venv_path))
+
+    # Print end title
+    _print_title('Check venv path', is_end=True)
+
+    # Print title
+    _print_title('Check requirements file')
+
+    # If requirements file path is not given
+    if not req_path:
+        # Replace slashes with dots, for composing requirements file path.
+        # Notice the value not contains full Python version.
+        venv_path_dotted = venv_path.replace('\\', '.').replace('/', '.')
+
+        # Compose requirements file path
+        req_path = './tools/pip/' + venv_path_dotted + '.requirements.txt'
+
+    # Normalize the requirements file path
+    req_path = os.path.normpath(req_path).replace('\\', '/')
+
+    # Get requirements file node
+    req_node = _create_node(ctx, req_path)
+
+    # If the requirements file exists
+    if req_node.exists():
+        # Print info
+        _print_text('Use requirements file: {0}'.format(req_path))
+
+    # If the requirements file not exists
+    else:
+        # Print info
+        _print_text('Create requirements file: {0}'.format(req_path))
+
+        # If the requirements file's parent directory not exists
+        if not req_node.parent.exists():
+            # Create the requirements file's parent directory
+            req_node.parent.mkdir()
+
+        # Create requirements file
+        req_node.write('')
+
+    # Print end title
+    _print_title('Check requirements file', is_end=True)
+
+    # Replace slashes with dots, for composing touch file path.
+    req_path_dotted = req_path.replace('\\', '.').replace('/', '.')
+
+    # Replace slashes with dots, for composing touch file path.
+    full_venv_path_dotted = full_venv_path.replace('\\', '.').replace('/', '.')
+
+    # Create task
+    task = _pip_ins_req(
+        # Context
+        ctx=ctx,
+
+        # Python program path.
+        # This Python program is only for setting up `pip` and `virtualenv`.
+        # Packages listed in given requirements file are not set up in this
+        # Python program's environment.
+        python=sys.executable,
+
+        # Requirements file path
+        req_path=req_path,
+
+        # Virtual environment directory path.
+        # Will run this virtual environment's `pip`.
+        venv_path=full_venv_path,
+
+        # Touch file path for dirty checking
+        touch=(
+            _TOUCH_DIR + '/' + req_path_dotted + '.' +
+            full_venv_path_dotted
+        ),
+
+        # Whether import module for dirty checking
+        check_import=check_import,
+
+        # Module name to import for dirty checking
+        check_import_module=check_import_module,
+
+        # Task `pip_setup`'s `get-pip.py` file path
+        pip_setup_file=_PIP_SETUP_FILE,
+
+        # Task `pip_setup`'s touch file path for dirty checking
+        pip_setup_touch=_PIP_SETUP_TOUCH,
+
+        # Task `virtualenv_setup`'s touch file path for dirty checking
+        virtualenv_setup_touch=_VIRTUALENV_SETUP_TOUCH,
+
+        # Whether always run
+        always=always or ctx.options.always,
+    )
+
+    # Return the created task
+    return task
+
+
+@_build_ctx(pythonpath='src')
+def venv(ctx, always=False):
+    """
+    Create task that sets up virtual environment and packages according to \
+    command line options.
+
+    The virtual environment created is based on current Python version.
+
+    :param ctx: BuildContext object.
+
+    :param always: Whether always run.
+
+    :return: Created task.
+    """
+    # Create task
+    task = _venv_pip_ins_req(
+        # Context
+        ctx=ctx,
+
+        # Virtual environment path.
+        # Use option `--venv`'s value. Default is `dev_venv`.
+        venv_path=ctx.options.venv or 'dev_venv',
+
+        # Whether add full Python version to virtual environment path.
+        # Use option `--venv-add-version`'s value.
+        venv_add_version=ctx.options.venv_add_version,
+
+        # Requirements file path.
+        # Use option `--req`'s value.
+        req_path=ctx.options.req_path,
+
+        # Whether always run
+        always=always or ctx.options.always,
+    )
+
+    # Return the created task
+    return task
+
+
+@_build_ctx(pythonpath='src')
+def dev_venv(ctx, always=False):
+    """
+    Create task that sets up development' virtual environment and packages.
+
+    The virtual environment created is based on current Python version.
+
+    :param ctx: BuildContext object.
+
+    :param always: Whether always run.
+
+    :return: Created task.
+    """
+    # Create task
+    task = _venv_pip_ins_req(
+        # Context
+        ctx=ctx,
+
+        # Virtual environment path
+        venv_path=_DEV_VENV_PATH,
+
+        # Do not add full Python version to virtual environment path because
+        # already added.
+        venv_add_version=False,
+
+        # Requirements file path
+        req_path='./tools/pip/dev_venv.requirements.txt',
+    )
+
+    # Return the created task
+    return task
+
+
+@_build_ctx(pythonpath='src')
+def prod_venv(ctx, always=False):
+    """
+    Create task that sets up production' virtual environment and packages.
+
+    The virtual environment created is based on current Python version.
+
+    :param ctx: BuildContext object.
+
+    :param always: Whether always run.
+
+    :return: Created task.
+    """
+    # Create task
+    task = _venv_pip_ins_req(
+        # Context
+        ctx=ctx,
+
+        # Virtual environment path
+        venv_path=_PROD_VENV_PATH,
+
+        # Do not add full Python version to virtual environment path because
+        # already added.
+        venv_add_version=False,
+
+        # Requirements file path
+        req_path='./tools/pip/prod_venv.requirements.txt',
+    )
+
+    # Return the created task
+    return task
+
+
+@_build_ctx(pythonpath='src')
+def tools_venv(ctx, always=False):
+    """
+    Create task that sets up tools' virtual environment and packages.
+
+    The virtual environment created is based on current Python version.
+
+    :param ctx: BuildContext object.
+
+    :param always: Whether always run.
+
+    :return: Created task.
+    """
+    # Create task
+    task = _venv_pip_ins_req(
+        # Context
+        ctx=ctx,
+
+        # Virtual environment path
+        venv_path=_TOOLS_VENV_PATH,
+
+        # Do not add full Python version to virtual environment path because
+        # already added.
+        venv_add_version=False,
+
+        # Requirements file path
+        req_path='./tools/pip/tools_venv.requirements.txt',
+    )
+
+    # Return the created task
+    return task
+
+
+def _tools_venv_pip_ins_req(ctx, req_path, check_import_module):
+    """
+    Create task that sets up tools' virtual environment and packages listed \
+    in given requirements file.
+
+    The virtual environment created is based on current Python version.
+
+    :param ctx: BuildContext object.
+
+    :param req_path: Requirements file relative path relative to top directory.
+
+    :param check_import_module: Module name to import for dirty checking.
+
+        Importing module for dirty checking is slower than merely
+        dirty-checking the touch file representing the package, but is more
+        accurate.
+
+    :return: Created task.
+    """
+    # Create task
+    task = _venv_pip_ins_req(
+        # Context
+        ctx=ctx,
+
+        # Virtual environment path
+        venv_path=_TOOLS_VENV_PATH,
+
+        # Do not add full Python version to virtual environment path because
+        # already added.
+        venv_add_version=False,
+
+        # Requirements file path
+        req_path=req_path,
+
+        # Whether import module for dirty checking
+        check_import=ctx.options.check_import,
+
+        # Module name to import for dirty checking
+        check_import_module=check_import_module,
+    )
+
+    # Return the created task
+    return task
+
+
+@_build_ctx(pythonpath='src')
+def autoflake(ctx):
+    """
+    Create task that runs `autoflake` to tidy code.
+
+    :param ctx: BuildContext object.
+
+    :return: Created task.
+    """
+    # Create task that sets up packages
+    pip_task = _tools_venv_pip_ins_req(
+        # Context
+        ctx=ctx,
+
+        # Requirements file path
+        req_path='./tools/autoflake/requirements.txt',
+
+        # Module name to import for dirty checking
+        check_import_module='autoflake',
+    )
+
+    # Create task that runs `autoflake` to tidy code
+    task = _create_cmd_task(
+        # Context
+        ctx=ctx,
+
+        # Command parts
+        parts=[
+            # Python program path
+            _IN(_TOOLS_VENV_PYTHON),
+
+            # Run module
+            '-m',
+
+            # Module name
+            'autoflake',
+
+            # Remove unused imports
+            '--remove-all-unused-imports',
+
+            # Apply changes in-place
+            '--in-place',
+
+            # Traverse directories recursively
+            '--recursive',
+
+            # Source code directory path
+            _IN(_TOP_PACKAGE_DIR),
+
+            # Other code files and directories
+            _IN(_EXTRA_CODE_PATHS_AND_DIRS),
+        ],
+
+        # Input items list
+        inputs=[
+            # Run after tasks that set up packages
+            tools_venv(ctx),
+            pip_task,
+        ],
+
+        # Whether always run
+        always=True,
+    )
+
+    # Return the created task
+    return task
+
+
+@_build_ctx(pythonpath='src')
+def autopep8(ctx):
+    """
+    Create task that runs `autopep8` to tidy code.
+
+    :param ctx: BuildContext object.
+
+    :return: Created task.
+    """
+    # Create task that sets up packages
+    pip_task = _tools_venv_pip_ins_req(
+        # Context
+        ctx=ctx,
+
+        # Requirements file path
+        req_path='./tools/autopep8/requirements.txt',
+
+        # Module name to import for dirty checking
+        check_import_module='autopep8',
+    )
+
+    # Create task that runs `autopep8` to tidy code
+    task = _create_cmd_task(
+        # Context
+        ctx=ctx,
+
+        # Command parts
+        parts=[
+            # Python program path
+            _IN(_TOOLS_VENV_PYTHON),
+
+            # Run module
+            '-m',
+
+            # Module name
+            'autopep8',
+
+            # Apply changes in-place
+            '--in-place',
+
+            # Traverse directories recursively
+            '--recursive',
+
+            # Source code directory path
+            _IN(_TOP_PACKAGE_DIR),
+
+            # Other code files and directories
+            _IN(_EXTRA_CODE_PATHS_AND_DIRS),
+        ],
+
+        # Input items list
+        inputs=[
+            # Run after tasks that set up packages
+            tools_venv(ctx),
+            pip_task,
+        ],
+
+        # Whether always run
+        always=True,
+    )
+
+    # Return the created task
+    return task
+
+
+@_build_ctx(pythonpath='src')
+def isort(ctx, check_only=False):
+    """
+    Create task that runs `isort` to tidy code.
+
+    :param ctx: BuildContext object.
+
+    :return: Created task.
+    """
+    # Create task that sets up packages
+    pip_task = _tools_venv_pip_ins_req(
+        # Context
+        ctx=ctx,
+
+        # Requirements file path
+        req_path='./tools/isort/requirements.txt',
+
+        # Module name to import for dirty checking
+        check_import_module='isort',
+    )
+
+    # Create task that runs `isort` to tidy code
+    task = _create_cmd_task(
+        # Context
+        ctx=ctx,
+
+        # Command parts
+        parts=[
+            # Python program path
+            _IN(_TOOLS_VENV_PYTHON),
+
+            # Run module
+            '-m',
+
+            # Module name
+            'isort.main',
+
+            # Specify config file
+            '--settings-path',
+
+            # Config file path
+            _IN('./setup.cfg'),
+
+            # Whether check only instead of applying changes
+            '--check-only' if check_only else None,
+
+            # Whether show diff info
+            '--diff' if check_only else None,
+
+            # Add import statement to all files
+            '--add_import',
+
+            # Import statement to add to all files
+            'from __future__ import absolute_import',
+
+            # Apply changes in-place
+            '--apply',
+
+            # Traverse directories recursively
+            '--recursive',
+
+            # Source code directory path
+            _IN(_TOP_PACKAGE_DIR),
+
+            # Other code files and directories
+            _IN(_EXTRA_CODE_PATHS_AND_DIRS),
+        ],
+
+        # Input items list
+        inputs=[
+            # Run after tasks that set up packages
+            tools_venv(ctx),
+            pip_task,
+        ],
+
+        # Whether always run
+        always=True,
+    )
+
+    # Return the created task
+    return task
+
+
+@_build_ctx(pythonpath='src')
+def isort_check(ctx):
+    """
+    Create task that runs `isort` to lint code.
+
+    :param ctx: BuildContext object.
+
+    :return: Created task.
+    """
+    # Delegate call to `isort`, with argument `check_only` set to True
+    return isort(ctx=ctx, check_only=True)
+
+
+@_build_ctx(pythonpath='src')
+def pyflakes(ctx):
+    """
+    Create task that runs `pyflakes` to lint code.
+
+    :param ctx: BuildContext object.
+
+    :return: Created task.
+    """
+    # Create task that sets up packages
+    pip_task = _tools_venv_pip_ins_req(
+        # Context
+        ctx=ctx,
+
+        # Requirements file path
+        req_path='./tools/pyflakes/requirements.txt',
+
+        # Module name to import for dirty checking
+        check_import_module='pyflakes',
+    )
+
+    # Create task that runs `pyflakes` to lint code
+    task = _create_cmd_task(
+        # Context
+        ctx=ctx,
+
+        # Command parts
+        parts=[
+            # Python program path
+            _IN(_TOOLS_VENV_PYTHON),
+
+            # Run module
+            '-m',
+
+            # Module name
+            'pyflakes',
+
+            # Source code directory path
+            _IN(_TOP_PACKAGE_DIR),
+
+            # Other code files and directories
+            _IN(_EXTRA_CODE_PATHS_AND_DIRS),
+        ],
+
+        # Input items list
+        inputs=[
+            # Run after tasks that set up packages
+            tools_venv(ctx),
+            pip_task,
+        ],
+
+        # Whether always run
+        always=True,
+    )
+
+    # Return the created task
+    return task
+
+
+@_build_ctx(pythonpath='src')
+def flake8(ctx):
+    """
+    Create task that runs `flake8` to lint code.
+
+    :param ctx: BuildContext object.
+
+    :return: Created task.
+    """
+    # Create task that sets up packages
+    pip_task = _tools_venv_pip_ins_req(
+        # Context
+        ctx=ctx,
+
+        # Requirements file path
+        req_path='./tools/flake8/requirements.txt',
+
+        # Module name to import for dirty checking
+        check_import_module='flake8',
+    )
+
+    # Create task that runs `flake8` to lint code
+    task = _create_cmd_task(
+        # Context
+        ctx=ctx,
+
+        # Command parts
+        parts=[
+            # Python program path
+            _IN(_TOOLS_VENV_PYTHON),
+
+            # Run module
+            '-m',
+
+            # Module name
+            'flake8',
+
+            # Specify config file
+            '--config',
+
+            # Config file path
+            _IN('./setup.cfg'),
+
+            # Source code directory path
+            _IN(_TOP_PACKAGE_DIR),
+
+            # Other code files and directories
+            _IN(_EXTRA_CODE_PATHS_AND_DIRS),
+        ],
+
+        # Input items list
+        inputs=[
+            # Run after tasks that set up packages
+            tools_venv(ctx),
+            pip_task,
+        ],
+
+        # Whether always run
+        always=True,
+    )
+
+    # Return the created task
+    return task
+
+
+@_build_ctx(pythonpath='src')
+def pycodestyle(ctx):
+    """
+    Create task that runs `pycodestyle` to lint code.
+
+    :param ctx: BuildContext object.
+
+    :return: Created task.
+    """
+    # Create task that sets up packages
+    pip_task = _tools_venv_pip_ins_req(
+        # Context
+        ctx=ctx,
+
+        # Requirements file path
+        req_path='./tools/pycodestyle/requirements.txt',
+
+        # Module name to import for dirty checking
+        check_import_module='pycodestyle',
+    )
+
+    # Create task that runs `pycodestyle` to lint code
+    task = _create_cmd_task(
+        # Context
+        ctx=ctx,
+
+        # Command parts
+        parts=[
+            # Python program path
+            _IN(_TOOLS_VENV_PYTHON),
+
+            # Run module
+            '-m',
+
+            # Module name
+            'pycodestyle',
+
+            # Specify config file
+            '--config',
+
+            # Config file path
+            _IN('./setup.cfg'),
+
+            # Source code directory path
+            _IN(_TOP_PACKAGE_DIR),
+
+            # Other code files and directories
+            _IN(_EXTRA_CODE_PATHS_AND_DIRS),
+        ],
+
+        # Input items list
+        inputs=[
+            # Run after tasks that set up packages
+            tools_venv(ctx),
+            pip_task,
+        ],
+
+        # Whether always run
+        always=True,
+    )
+
+    # Return the created task
+    return task
+
+
+@_build_ctx(pythonpath='src')
+def pydocstyle(ctx):
+    """
+    Create task that runs `pydocstyle` to lint code.
+
+    :param ctx: BuildContext object.
+
+    :return: Created task.
+    """
+    # Create task that sets up packages
+    pip_task = _tools_venv_pip_ins_req(
+        # Context
+        ctx=ctx,
+
+        # Requirements file path
+        req_path='./tools/pydocstyle/requirements.txt',
+
+        # Module name to import for dirty checking
+        check_import_module='pydocstyle',
+    )
+
+    # Create task that runs `pydocstyle` to lint code
+    task = _create_cmd_task(
+        # Context
+        ctx=ctx,
+
+        # Command parts
+        parts=[
+            # Python program path
+            _IN(_TOOLS_VENV_PYTHON),
+
+            # Run module
+            '-m',
+
+            # Module name
+            'pydocstyle',
+
+            # Be verbose
+            '--verbose',
+
+            # Source code directory path
+            _IN(_TOP_PACKAGE_DIR),
+
+            # Other code files and directories
+            _IN(_EXTRA_CODE_PATHS_AND_DIRS),
+        ],
+
+        # Input items list
+        inputs=[
+            # Run after tasks that set up packages
+            tools_venv(ctx),
+            pip_task,
+        ],
+
+        # Whether always run
+        always=True,
+    )
+
+    # Return the created task
+    return task
+
+
+@_build_ctx(pythonpath='src')
+def pylint(ctx):
+    """
+    Create task that runs `pylint` to lint code.
+
+    :param ctx: BuildContext object.
+
+    :return: Created task.
+    """
+    # Create task that sets up packages
+    pip_task = _tools_venv_pip_ins_req(
+        # Context
+        ctx=ctx,
+
+        # Requirements file path
+        req_path='./tools/pylint/requirements.txt',
+
+        # Module name to import for dirty checking
+        check_import_module='pylint',
+    )
+
+    # Create task that runs `pylint` to lint code
+    task = _create_cmd_task(
+        # Context
+        ctx=ctx,
+
+        # Command parts
+        parts=[
+            # Python program path
+            _IN(_TOOLS_VENV_PYTHON),
+
+            # Run module
+            '-m',
+
+            # Module name
+            'pylint',
+
+            # Specify config file
+            '--rcfile',
+
+            # Config file path
+            _IN('./tools/pylint/.pylintrc'),
+
+            # Project's top package.
+            # Notice `pylint` requires package directory to contain
+            # `__init__.py` file.
+            _TOP_PACKAGE,
+
+            # Other code files and directories.
+            # Notice `pylint` requires directories to contain `__init__.py`
+            # file.
+            _IN(_EXTRA_CODE_PATHS_AND_DIRS),
+        ],
+
+        # Input items list
+        inputs=[
+            # Run after tasks that set up packages
+            tools_venv(ctx),
+            pip_task,
+        ],
+
+        # Whether always run
+        always=True,
+    )
+
+    # Return the created task
+    return task
+
+
+@_build_ctx(pythonpath=['src', './tools/pytest'])
+def pytest(ctx):
+    """
+    Create task that runs `pytest` to test code.
+
+    :param ctx: BuildContext object.
+
+    :return: Created task.
+    """
+    # Create task that sets up packages
+    pip_task = _tools_venv_pip_ins_req(
+        # Context
+        ctx=ctx,
+
+        # Requirements file path
+        req_path='./tools/pytest/requirements.txt',
+
+        # Module name to import for dirty checking
+        check_import_module='pytest',
+    )
+
+    # Create task that runs `pytest` to test code
+    task = _create_cmd_task(
+        # Context
+        ctx=ctx,
+
+        # Command parts
+        parts=[
+            # Python program path
+            _IN(_TOOLS_VENV_PYTHON),
+
+            # Run module
+            '-m',
+
+            # Module name
+            'pytest',
+
+            # Specify config file
+            '-c',
+
+            # Config file path
+            _IN('./setup.cfg'),
+
+            # Load plugin
+            '-p',
+
+            # Plugin name
+            'pytest_custom_plugin',
+
+            # Start directory path for discovering tests
+            _IN(_TOP_PACKAGE_DIR),
+        ],
+
+        # Input items list
+        inputs=[
+            # Run after tasks that set up packages
+            tools_venv(ctx),
+            pip_task,
+        ],
+
+        # Whether always run
+        always=True,
+    )
+
+    # Return the created task
+    return task
+
+
+@_build_ctx(pythonpath='src')
+def tidy(ctx):
+    """
+    Create task that runs all tools to tidy code.
+
+    :param ctx: BuildContext object.
+
+    :return: Created task.
+    """
+    # Run tasks below in a chain
+    tasks = _chain_tasks([
+        # Remove unused imports
+        autoflake(ctx),
+
+        # Format code according to PEP8
+        autopep8(ctx),
+
+        # Sort imports
+        isort(ctx),
+    ])
+
+    # Return the last task
+    return tasks[-1]
+
+
+@_build_ctx(pythonpath='src')
+def lint(ctx):
+    """
+    Create task that runs all tools to lint code.
+
+    :param ctx: BuildContext object.
+
+    :return: Created task.
+    """
+    # Run tasks below in a chain
+    tasks = _chain_tasks([
+        # Check imports are sorted
+        isort_check(ctx),
+
+        # Check unused imports
+        pyflakes(ctx),
+
+        # Check code style
+        flake8(ctx),
+
+        # Check code style
+        pycodestyle(ctx),
+
+        # Check doc-string style
+        pydocstyle(ctx),
+
+        # Check code style
+        pylint(ctx),
+    ])
+
+    # Return the last task
+    return tasks[-1]
+
+
+@_build_ctx(pythonpath='src')
+def test(ctx):
+    """
+    Create task that runs all tools to test code.
+
+    :param ctx: BuildContext object.
+
+    :return: Created task.
+    """
+    # Run tasks below in a chain
+    tasks = _chain_tasks([
+        # Run tests using `pytest`
+        pytest(ctx),
+    ])
+
+    # Return the last task
+    return tasks[-1]
+
+
+@_build_ctx(pythonpath='src')
+def list_py(ctx):
+    """
+    List Python files in the project.
+
+    :param ctx: BuildContext object.
+
+    :return: None.
+    """
+    # Find python files in `src` directory
+    src_node_s = _create_node(ctx, '.').ant_glob('src/**/*.py')
+
+    # Find python files in `tools` directory
+    tools_node_s = _create_node(ctx, '.').ant_glob('tools/**/*.py')
+
+    # Combine the file nodes
+    all_node_s = src_node_s + tools_node_s
+
+    # Convert nodes to paths.
+    # Ignore `waflib`'s files.
+    all_path_s = [str(x) for x in all_node_s if 'waflib' not in str(x)]
+
+    # Print the paths
+    _print_text('\n'.join(all_path_s))
+
+
+def print_plain_ctx(ctx):
+    """
+    Print plain context's info.
+
+    :param ctx: Context object.
+
+    :return: None.
+    """
+    # Print given context's info
+    _print_ctx(ctx)
+
+
+@_config_ctx
+def print_config_ctx(ctx):
+    """
+    Print configuration context's info.
+
+    :param ctx: ConfigurationContext object.
+
+    :return: None.
+    """
+    # Print given context's info
+    _print_ctx(ctx)
+
+
+@_build_ctx
+def print_build_ctx(ctx):
+    """
+    Print build context's info.
+
+    :param ctx: BuildContext object.
+
+    :return: None.
+    """
+    # Print given context's info
+    _print_ctx(ctx)
+
+
+@_build_ctx
+def clean(ctx):
+    """
+    Delete all files untracked in git.
+
+    :param ctx: BuildContext object.
+
+    :return: None.
+    """
+    # Delete all files untracked in git
+    return _git_clean(ctx=ctx)

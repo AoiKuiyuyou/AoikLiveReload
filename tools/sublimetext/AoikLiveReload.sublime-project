@@ -1,0 +1,47 @@
+{
+    "build_systems":
+    [
+        {
+            "cmd":
+            [
+                "pwd"
+            ],
+            "name": "pwd",
+            "shell": true,
+            "working_dir": "."
+        }
+    ],
+    "folders":
+    [
+        {
+            "file_exclude_patterns":
+            [
+                ".lock-waf*",
+                "*.log"
+            ],
+            "folder_exclude_patterns":
+            [
+                "__*__",
+                "build*",
+                "bot_data",
+                ".cache",
+                "dist*",
+                "*.egg-info",
+                "tools/waf/waf?-*",
+                "*_venv.py*"
+            ],
+            "path": "../.."
+        }
+    ],
+    "settings":
+    {
+        "auto_indent": true,
+        "detect_indentation": true,
+        "smart_indent": true,
+        "tab_size": 4,
+        "translate_tabs_to_spaces": true,
+        "trim_automatic_white_space": true,
+        "trim_trailing_white_space_on_save": true,
+        "use_tab_stops": true
+    }
+}
